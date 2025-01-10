@@ -1,6 +1,6 @@
-ARG NGINX_VERSION=1.25.1
+ARG NGINX_VERSION=1.26.2
 
-FROM alpine:3.14 AS base
+FROM alpine:3.21 AS base
 LABEL maintainer="NGINX Docker Maintainers <justf>"
 
 # https://nginx.org/en/download.html
@@ -8,10 +8,9 @@ ARG NGINX_VERSION
 ARG NGINX_PATCH="https://raw.githubusercontent.com/kn007/patch/master/nginx_dynamic_tls_records.patch"
 ARG NGINX_CRYPT_PATCH="https://raw.githubusercontent.com/kn007/patch/master/use_openssl_md5_sha1.patch"
 
-# openssl
-ARG OPENSSL_VERSION="1.1.1u"
-ARG OPENSSL_URL="https://www.openssl.org/source/openssl-$OPENSSL_VERSION.tar.gz"
-ARG OPENSSL_PATCH="https://raw.githubusercontent.com/kn007/patch/master/openssl-1.1.1.patch"
+# LIBRESSL
+ARG LIBRESSL_VERSION=4.0.0
+ARG LIBRESSL_URL="https://ftp.openbsd.org/pub/OpenBSD/LibreSSL/libressl-${LIBRESSL_VERSION}.tar.gz"
 
 # zlib by cloudflare
 ARG ZLIB_URL="https://github.com/cloudflare/zlib.git"
@@ -20,7 +19,7 @@ ARG ZLIB_URL="https://github.com/cloudflare/zlib.git"
 ARG JEMALLOC_VERSION=5.3.0
 ARG JEMALLOC_URL="https://github.com/jemalloc/jemalloc/releases/download/${JEMALLOC_VERSION}/jemalloc-${JEMALLOC_VERSION}.tar.bz2"
 
-# brotil
+# brotli
 ARG BROTLI_URL="https://github.com/google/ngx_brotli.git"
 
 # https://github.com/openresty/headers-more-nginx-module#installation
@@ -30,8 +29,8 @@ ARG HEADERS_MORE_URL="https://github.com/openresty/headers-more-nginx-module/arc
 # https://github.com/leev/ngx_http_geoip2_module/releases
 ARG GEOIP2_VERSION=3.4
 
-ARG PCRE_VERSION="8.45"
-ARG PCRE_URL="https://downloads.sourceforge.net/project/pcre/pcre/${PCRE_VERSION}/pcre-${PCRE_VERSION}.tar.gz"
+ARG PCRE_VERSION="10.44"
+ARG PCRE_URL="https://github.com/PhilipHazel/pcre2/releases/download/pcre2-${PCRE_VERSION}/pcre2-${PCRE_VERSION}.tar.gz"
 
 ARG LIBATOMIC_VERSION="7.8.0"
 ARG LIBATOMIC_URL="https://github.com/ivmai/libatomic_ops/releases/download/v${LIBATOMIC_VERSION}/libatomic_ops-${LIBATOMIC_VERSION}.tar.gz"
@@ -58,7 +57,7 @@ RUN \
 		zlib-dev \
 		linux-headers \
 		curl \
-		gnupg1 \
+		gnupg \
 		libxslt-dev \
 		gd-dev \
 		geoip-dev \
@@ -81,74 +80,76 @@ RUN \
   && make -f Makefile.in distclean 
 
 RUN \
-  echo "Downloading Openssl $OPENSSL_VERSION " \
+  echo "Downloading LibreSSL $LIBRESSL_VERSION ..." \
   && cd /usr/src \
-  && wget -O openssl-${OPENSSL_VERSION}.tar.gz ${OPENSSL_URL} \
-  && tar -xzvf openssl-${OPENSSL_VERSION}.tar.gz \
-  && cd /usr/src/openssl-${OPENSSL_VERSION} \
-  && curl ${OPENSSL_PATCH} | patch -p1
+  && wget -O libressl-${LIBRESSL_VERSION}.tar.gz ${LIBRESSL_URL} \
+  && tar -xzvf libressl-${LIBRESSL_VERSION}.tar.gz
 
 RUN \
   echo "Cloning nginx $NGINX_VERSION ..." \
   && wget -O nginx.tar.gz https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz \
   && tar -xzvf nginx.tar.gz -C /usr/src \
-  && rm -f nginx.tar.gz \
-  && cd /usr/src/nginx-${NGINX_VERSION} \
-  && curl ${NGINX_PATCH} | patch -p1 \
-  && curl ${NGINX_CRYPT_PATCH} | patch -p1
+  && rm -f nginx.tar.gz 
+#  && cd /usr/src/nginx-${NGINX_VERSION} \
+#  && curl ${NGINX_PATCH} | patch -p1 \
+#  && curl ${NGINX_CRYPT_PATCH} | patch -p1
 
 RUN \
   echo "Cloning ngx_http2_geoip2_module ..." \
-  # ngx_http_geoip2_module needs libmaxminddb-dev
+  #ngx_http_geoip2_module needs libmaxminddb-dev
   && apk add --no-cache libmaxminddb-dev \
   && cd /usr/src \
   && git clone --depth 1 --branch ${GEOIP2_VERSION} https://github.com/leev/ngx_http_geoip2_module 
 
 RUN \
-  echo "Cloning ngx_brotli ..." \
+  echo "Cloning ngx_brotli ..." \ 
   && cd /usr/src \
   && git clone ${BROTLI_URL} \
   && cd /usr/src/ngx_brotli \
   && git submodule update --init --recursive
 
 RUN \
-  echo "Cloning nginx-http-flv-module & nginx_substitutions_filter ..." \
+  echo "Cloning nginx-http-flv-module & nginx_substitutions_filter ..." \ 
   && cd /usr/src \
   && git clone --depth 1 ${HTTP_FLV_URL} \
   && git clone --depth 1 ${SUBS_FILTER_URL} 
 
+COPY headers-more-nginx-module.tar.gz  /usr/src/
 RUN \
   echo "Downloading headers-more-nginx-module ..." \
   && cd /usr/src \
-  && wget https://github.com/openresty/headers-more-nginx-module/archive/refs/tags/v${HEADERS_MORE_VERSION}.tar.gz -O headers-more-nginx-module.tar.gz \
+#  && wget https://github.com/openresty/headers-more-nginx-module/archive/refs/tags/v${HEADERS_MORE_VERSION}.tar.gz -O headers-more-nginx-module.tar.gz \
   && tar -xf headers-more-nginx-module.tar.gz
 
+COPY libatomic_ops-7.8.0.tar.gz /usr/src/
 RUN \
   echo "Downloading libatomic_ops ..." \
   && cd /usr/src \
-  && wget -O libatomic_ops-${LIBATOMIC_VERSION}.tar.gz ${LIBATOMIC_URL} \
+ # && wget -O libatomic_ops-${LIBATOMIC_VERSION}.tar.gz ${LIBATOMIC_URL} \
   && tar -xzvf libatomic_ops-${LIBATOMIC_VERSION}.tar.gz \
   && cd /usr/src/libatomic_ops-${LIBATOMIC_VERSION} \
   &&  ./configure \
   && make -j $(nproc) \
   && ln -s .libs/libatomic_ops.a src/libatomic_ops.a
 
+COPY ngx-fancyindex-0.5.2.tar.xz /usr/src/
 RUN \
   echo "Downloading ngx-fancyindex ..." \
   && cd /usr/src \
-  && wget -O ngx-fancyindex-${FANCYINDEX_VERSION}.tar.xz ${FANCYINDEX_URL} \
+  #&& wget -O ngx-fancyindex-${FANCYINDEX_VERSION}.tar.xz ${FANCYINDEX_URL} \
   && tar -xvf ngx-fancyindex-${FANCYINDEX_VERSION}.tar.xz 
 
 RUN \
   echo "Downloading PCRE ..." \
   && cd /usr/src \
-  && wget -O pcre-${PCRE_VERSION}.tar.gz ${PCRE_URL} \
-  && tar -xzvf pcre-${PCRE_VERSION}.tar.gz
+  && wget -O pcre2-${PCRE_VERSION}.tar.gz ${PCRE_URL} \
+  && tar -xzvf pcre2-${PCRE_VERSION}.tar.gz
 
+COPY jemalloc-5.3.0.tar.bz2 /usr/src/jemalloc.tar.gz
 RUN \
   echo "Downloading and build jemalloc" \
   && cd /usr/src \
-  && wget -O jemalloc.tar.gz ${JEMALLOC_URL} \
+  #&& wget -O jemalloc.tar.gz ${JEMALLOC_URL} \
   && tar -xvf jemalloc.tar.gz\
   && cd jemalloc-${JEMALLOC_VERSION} \
   && ./configure \
@@ -156,7 +157,11 @@ RUN \
 
 RUN \
 	echo "Building nginx ..." \
+        && cd /usr/src \
+        && git clone https://github.com/yaoweibin/nginx_upstream_check_module.git \
+        && echo "Patching Nginx with check_1.20.1+.patch for health_check ..." \
 	&& cd /usr/src/nginx-$NGINX_VERSION \
+        && patch -p1 < ../nginx_upstream_check_module/check_1.20.1+.patch \
 	&& ./configure \
 		--prefix=/etc/nginx \
 		--sbin-path=/usr/sbin/nginx \
@@ -202,7 +207,7 @@ RUN \
 		--with-file-aio \
 		--with-http_v2_module \
 		--with-zlib=/usr/src/zlib \
-		--with-pcre=/usr/src/pcre-${PCRE_VERSION} \
+		--with-pcre=/usr/src/pcre2-${PCRE_VERSION} \
 		--with-pcre-jit \
 		--with-libatomic=/usr/src/libatomic_ops-${LIBATOMIC_VERSION} \
 		--add-module=/usr/src/headers-more-nginx-module-${HEADERS_MORE_VERSION} \
@@ -211,7 +216,8 @@ RUN \
 		--add-module=/usr/src/ngx_http_geoip2_module \
 		--add-module=/usr/src/nginx-http-flv-module \
 		--add-module=/usr/src/ngx_http_substitutions_filter_module \
-		--with-openssl=/usr/src/openssl-${OPENSSL_VERSION} \
+		--add-module=/usr/src/nginx_upstream_check_module \ 
+		--with-openssl=/usr/src/libressl-${LIBRESSL_VERSION} \
 		--with-openssl-opt="zlib enable-tls1_3 enable-weak-ssl-ciphers enable-ec_nistp_64_gcc_128  -ljemalloc -Wl,-flto" \
 	&& make -j$(getconf _NPROCESSORS_ONLN)
 
@@ -239,7 +245,7 @@ RUN \
 			| xargs -r apk info --installed \
 			| sort -u > /tmp/runDeps.txt
 
-FROM alpine:3.14
+FROM alpine:3.21
 ARG NGINX_VERSION
 ARG NGINX_COMMIT
 
